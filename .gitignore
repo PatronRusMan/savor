@@ -1,0 +1,35 @@
+# binaries & build
+bin/
+dist/
+tmp/
+*.exe
+*.test
+*.out
+coverage.*
+
+# deps
+node_modules/
+vendor/
+.next/
+.turbo/
+.vercel/
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ide / os
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# docker
+docker-data/
+
+# cursor / agent traces — never commit
+.cursor/
+.cursorignore

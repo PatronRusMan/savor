@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CourierProfile {
+  userId     String     @id @map("user_id")
+  name       String
+  isOnline   Boolean    @default(false) @map("is_online")
+  deliveries Delivery[]
+
+  @@map("couriers")
+}
+
+model Delivery {
+  id             String         @id @default(uuid())
+  orderId        String         @unique @map("order_id")
+  courierId      String         @map("courier_id")
+  courier        CourierProfile @relation(fields: [courierId], references: [userId])
+  status         String
+  restaurantName String         @map("restaurant_name")
+  address        String
+  assignedAt     DateTime       @default(now()) @map("assigned_at")
+  pickedUpAt     DateTime?      @map("picked_up_at")
+  deliveredAt    DateTime?      @map("delivered_at")
+
+  @@index([courierId, status])
+  @@map("deliveries")
+}

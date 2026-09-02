@@ -1,0 +1,388 @@
+name: savor
+
+networks:
+  savor:
+    name: savor
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+
+services:
+  traefik:
+    image: traefik:v3.3
+    command:
+      - --configFile=/etc/traefik/traefik.yml
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./infra/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks: [savor]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-savor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-savor}
+      POSTGRES_DB: savor
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-savor}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [savor]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [savor]
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-savor}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-savor}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [savor]
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-savor}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-savorsecret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 15s
+    networks: [savor]
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set savor http://minio:9000 $${MINIO_ROOT_USER:-savor} $${MINIO_ROOT_PASSWORD:-savorsecret} &&
+      mc mb -p savor/menus || true &&
+      mc anonymous set download savor/menus || true
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-savor}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-savorsecret}
+    networks: [savor]
+    restart: on-failure
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks: [savor]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [savor]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.3.2
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    networks: [savor]
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./infra/promtail/config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on: [loki]
+    networks: [savor]
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.66.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+    networks: [savor]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-savor}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-savor}
+      GF_USERS_DEFAULT_THEME: dark
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus, loki, jaeger]
+    networks: [savor]
+    restart: unless-stopped
+
+  identity:
+    build:
+      context: ./services/identity
+    environment:
+      HTTP_ADDR: ":8001"
+      SERVICE_NAME: identity
+      DATABASE_URL: postgres://${POSTGRES_USER:-savor}:${POSTGRES_PASSWORD:-savor}@postgres:5432/identity?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me-in-real-life-32chars-min}
+      MIGRATIONS_PATH: /app/migrations
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [savor]
+    restart: unless-stopped
+
+  catalog:
+    build:
+      context: ./services/catalog
+    environment:
+      PORT: "8002"
+      DATABASE_URL: postgres://${POSTGRES_USER:-savor}:${POSTGRES_PASSWORD:-savor}@postgres:5432/catalog?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8002/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+    networks: [savor]
+    restart: unless-stopped
+
+  order:
+    build:
+      context: ./services/order
+    environment:
+      HTTP_ADDR: ":8003"
+      SERVICE_NAME: order
+      DATABASE_URL: postgres://${POSTGRES_USER:-savor}:${POSTGRES_PASSWORD:-savor}@postgres:5432/orders?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-savor}:${RABBITMQ_PASSWORD:-savor}@rabbitmq:5672/
+      CATALOG_URL: http://catalog:8002
+      MIGRATIONS_PATH: /app/migrations
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      catalog:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8003/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [savor]
+    restart: unless-stopped
+
+  payment:
+    build:
+      context: ./services/payment
+    environment:
+      HTTP_ADDR: ":8004"
+      SERVICE_NAME: payment
+      DATABASE_URL: postgres://${POSTGRES_USER:-savor}:${POSTGRES_PASSWORD:-savor}@postgres:5432/payments?sslmode=disable
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-savor}:${RABBITMQ_PASSWORD:-savor}@rabbitmq:5672/
+      MIGRATIONS_PATH: /app/migrations
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8004/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [savor]
+    restart: unless-stopped
+
+  courier:
+    build:
+      context: ./services/courier
+    environment:
+      PORT: "8005"
+      DATABASE_URL: postgres://${POSTGRES_USER:-savor}:${POSTGRES_PASSWORD:-savor}@postgres:5432/courier?sslmode=disable
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-savor}:${RABBITMQ_PASSWORD:-savor}@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8005/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+    networks: [savor]
+    restart: unless-stopped
+
+  notification:
+    build:
+      context: ./services/notification
+    environment:
+      PORT: "8006"
+      DATABASE_URL: postgres://${POSTGRES_USER:-savor}:${POSTGRES_PASSWORD:-savor}@postgres:5432/notifications?sslmode=disable
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-savor}:${RABBITMQ_PASSWORD:-savor}@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_FROM: Savor <noreply@savor.dev>
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8006/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+    networks: [savor]
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./services/gateway
+    environment:
+      HTTP_ADDR: ":8000"
+      SERVICE_NAME: gateway
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me-in-real-life-32chars-min}
+      REDIS_URL: redis://redis:6379
+      IDENTITY_URL: http://identity:8001
+      CATALOG_URL: http://catalog:8002
+      ORDER_URL: http://order:8003
+      PAYMENT_URL: http://payment:8004
+      COURIER_URL: http://courier:8005
+      NOTIFICATION_URL: http://notification:8006
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      identity:
+        condition: service_healthy
+      catalog:
+        condition: service_healthy
+      order:
+        condition: service_healthy
+      payment:
+        condition: service_healthy
+      courier:
+        condition: service_healthy
+      notification:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [savor]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost}
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+    networks: [savor]
+    restart: unless-stopped

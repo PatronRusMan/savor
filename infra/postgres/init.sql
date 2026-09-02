@@ -1,0 +1,6 @@
+CREATE DATABASE identity;
+CREATE DATABASE catalog;
+CREATE DATABASE orders;
+CREATE DATABASE payments;
+CREATE DATABASE courier;
+CREATE DATABASE notifications;

@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: Savor public API
+  version: "1.0.0"
+  description: Browser talks only to the gateway. Internal services are not exposed.
+servers:
+  - url: http://localhost
+paths:
+  /api/v1/auth/register:
+    post:
+      summary: Register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email: { type: string }
+                password: { type: string }
+                name: { type: string }
+                role: { type: string, enum: [customer, restaurant, courier] }
+  /api/v1/auth/login:
+    post:
+      summary: Login
+  /api/v1/auth/refresh:
+    post:
+      summary: Rotate refresh token
+  /api/v1/auth/me:
+    get:
+      summary: Current user
+  /api/v1/restaurants:
+    get:
+      summary: List / search restaurants
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: cuisine
+          schema: { type: string }
+  /api/v1/restaurants/{id}/menu:
+    get:
+      summary: Menu
+  /api/v1/cart:
+    get:
+      summary: Current cart
+  /api/v1/cart/items:
+    post:
+      summary: Add dish
+  /api/v1/orders:
+    get:
+      summary: List orders for the caller's role
+    post:
+      summary: Checkout cart
+  /api/v1/orders/{id}/status:
+    post:
+      summary: Kitchen / customer status transition
+  /api/v1/courier/shift/start:
+    post:
+      summary: Courier goes online
+  /api/v1/courier/jobs:
+    get:
+      summary: Courier jobs
+  /ws:
+    get:
+      summary: Live order events (WebSocket, token query param)

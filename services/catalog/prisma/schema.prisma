@@ -1,0 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Restaurant {
+  id          String   @id @default(uuid())
+  ownerId     String   @map("owner_id")
+  name        String
+  slug        String   @unique
+  description String
+  cuisine     String
+  address     String
+  etaMinutes  Int      @map("eta_minutes")
+  rating      Float    @default(4.6)
+  imageUrl    String   @map("image_url")
+  isOpen      Boolean  @default(true) @map("is_open")
+  createdAt   DateTime @default(now()) @map("created_at")
+  dishes      Dish[]
+
+  @@index([ownerId])
+  @@index([cuisine])
+  @@map("restaurants")
+}
+
+model Dish {
+  id           String     @id @default(uuid())
+  restaurantId String     @map("restaurant_id")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  description  String
+  priceCents   Int        @map("price_cents")
+  category     String
+  isAvailable  Boolean    @default(true) @map("is_available")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@index([restaurantId])
+  @@map("dishes")
+}
