@@ -1,0 +1,10 @@
+Screenshot placeholders - run 'docker compose up' and capture real screenshots following docs/SCREENSHOTS.md
+
+Required screenshots:
+- docs/customer-browse.png - Customer browsing restaurants
+- docs/customer-cart.png - Customer cart with items
+- docs/customer-order.png - Customer order status page
+- docs/restaurant-orders.png - Restaurant order management
+- docs/restaurant-menu.png - Restaurant menu editor
+- docs/courier-dashboard.png - Courier dashboard
+- docs/courier-delivery.png - Courier active delivery view
