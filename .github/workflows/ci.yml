@@ -30,6 +30,8 @@ jobs:
           go-version: "1.23"
           cache: false
       - run: go mod tidy && go build ./...
+      - run: go vet ./...
+      - run: go test -short ./...
 
   nest:
     name: nest / ${{ matrix.service }}
@@ -49,6 +51,7 @@ jobs:
       - run: npm install
       - run: npx prisma generate
       - run: npm run build
+      - run: npm test
 
   web:
     name: next / web
