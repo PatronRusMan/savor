@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { NotificationsService } from "./notifications.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { MqService } from "../mq/mq.service";
 
 describe("NotificationsService", () => {
   let service: NotificationsService;
@@ -16,6 +17,8 @@ describe("NotificationsService", () => {
             notification: {
               create: jest.fn(),
               findMany: jest.fn(),
+              findUnique: jest.fn(),
+              update: jest.fn(),
             },
           },
         },
@@ -23,6 +26,13 @@ describe("NotificationsService", () => {
           provide: MailService,
           useValue: {
             send: jest.fn(),
+          },
+        },
+        {
+          provide: MqService,
+          useValue: {
+            consume: jest.fn().mockResolvedValue(undefined),
+            publish: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

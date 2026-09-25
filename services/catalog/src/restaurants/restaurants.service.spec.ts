@@ -21,6 +21,7 @@ describe("RestaurantsService", () => {
     rating: 4.5,
     imageUrl: "https://example.com/image.jpg",
     isOpen: true,
+    createdAt: new Date(),
   };
 
   const mockDish = {
@@ -31,6 +32,7 @@ describe("RestaurantsService", () => {
     priceCents: 1200,
     category: "Mains",
     isAvailable: true,
+    createdAt: new Date(),
     restaurant: mockRestaurant,
   };
 
